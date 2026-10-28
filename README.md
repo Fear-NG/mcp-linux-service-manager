@@ -2,7 +2,7 @@
 
 ## 👥 Nhóm tác giả (Authors)
 - **Nguyễn Thành Nhân** ([@Fear-NG](https://github.com/Fear-NG))
-- **Võ Minh Trí**
+- **Võ Minh Trí** ([@Wisdom](https://github.com/wisdom2o6))
 - **Đặng Nguyễn Bách Việt**
 
 ## 🛠 Cài đặt & Chạy
