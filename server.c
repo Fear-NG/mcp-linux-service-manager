@@ -186,8 +186,25 @@ void* web_dashboard_thread(void *arg) {
         }
 
         char req_buf[8192] = {0};
-        ssize_t r = read(new_socket, req_buf, sizeof(req_buf) - 1);
-        if (r <= 0) {
+        ssize_t total_read = 0;
+        while (total_read < (ssize_t)sizeof(req_buf) - 1) {
+            ssize_t r = read(new_socket, req_buf + total_read, sizeof(req_buf) - 1 - total_read);
+            if (r <= 0) break;
+            total_read += r;
+            req_buf[total_read] = '\0';
+            char *hdr_end = strstr(req_buf, "\r\n\r\n");
+            if (hdr_end) {
+                char *cl = strcasestr(req_buf, "Content-Length:");
+                if (cl) {
+                    long content_len = strtol(cl + 15, NULL, 10);
+                    ssize_t body_received = total_read - (hdr_end + 4 - req_buf);
+                    if (body_received >= content_len) break;
+                } else {
+                    break;
+                }
+            }
+        }
+        if (total_read <= 0) {
             close(new_socket);
             continue;
         }
@@ -276,6 +293,7 @@ void* web_dashboard_thread(void *arg) {
         // ===============================================
         // 3. ACTION HANDLER (POST /api/action)
         // ===============================================
+        char current_service[128] = {0};
         char *action_feedback = malloc(16384);
         action_feedback[0] = '\0';
         int is_json_req = (strstr(req_buf, "Content-Type: application/json") != NULL);
@@ -301,6 +319,27 @@ void* web_dashboard_thread(void *arg) {
                     parse_post_param(body, "action", action, sizeof(action));
                 }
 
+                // Tự động điền dịch vụ mặc định theo nút nếu ô nhập để trống
+                int auto_filled = 0;
+                if (strlen(service) == 0) {
+                    auto_filled = 1;
+                    if (strcmp(action, "diagnose") == 0 || strcmp(action, "stop") == 0) {
+                        snprintf(service, sizeof(service), "demo-crash");
+                    } else if (strcmp(action, "reload") == 0) {
+                        snprintf(service, sizeof(service), "systemd-resolved");
+                    } else {
+                        snprintf(service, sizeof(service), "cron");
+                    }
+                }
+                snprintf(current_service, sizeof(current_service), "%s", service);
+
+                char fill_notice[256] = {0};
+                if (auto_filled) {
+                    snprintf(fill_notice, sizeof(fill_notice),
+                             "<div style='margin-bottom:8px;font-size:0.85rem;color:#89b4fa;'>⚡ <b>Fill sẵn tự động:</b> Ô nhập để trống nên đã áp dụng dịch vụ mặc định <code>%s</code> cho hành động <b>%s</b>.</div>",
+                             service, action);
+                }
+
                 if (!is_valid_service_name(service)) {
                     snprintf(action_feedback, 16384,
                              "<div class='alert err'>❌ <b>Lỗi:</b> Tên dịch vụ <code>%s</code> không hợp lệ! Chỉ cho phép [a-zA-Z0-9_-.@]</div>", service);
@@ -311,18 +350,18 @@ void* web_dashboard_thread(void *arg) {
                     char *log_res = run_cmd_safe(log_argv);
 
                     snprintf(action_feedback, 16384,
-                             "<div class='alert info'>🔍 <b>Báo cáo chẩn đoán chuyên sâu cho <code>%s</code>:</b>"
+                             "<div class='alert info'>%s🔍 <b>Báo cáo chẩn đoán chuyên sâu cho <code>%s</code>:</b>"
                              "<pre>--- THÔNG SỐ KỸ THUẬT ---\n%s\n--- 20 DÒNG LOG GẦN NHẤT ---\n%s</pre></div>",
-                             service, show_res, strlen(log_res) > 0 ? log_res : "(Không có dữ liệu log)");
+                             fill_notice, service, show_res, strlen(log_res) > 0 ? log_res : "(Không có dữ liệu log)");
                     free(show_res);
                     free(log_res);
                 } else if (is_allowed_action(action)) {
                     char *argv[] = {"/usr/bin/sudo", "/bin/systemctl", action, service, NULL};
                     char *cmd_res = run_cmd_safe(argv);
                     snprintf(action_feedback, 16384,
-                             "<div class='alert ok'>✅ <b>Kết quả thực thi lệnh <code>systemctl %s %s</code>:</b>"
+                             "<div class='alert ok'>%s✅ <b>Kết quả thực thi lệnh <code>systemctl %s %s</code>:</b>"
                              "<pre>%s</pre></div>",
-                             action, service, strlen(cmd_res) > 0 ? cmd_res : "Thao tác hoàn tất thành công (Return code 0).");
+                             fill_notice, action, service, strlen(cmd_res) > 0 ? cmd_res : "Thao tác hoàn tất thành công (Return code 0).");
                     free(cmd_res);
                 } else {
                     snprintf(action_feedback, 16384,
@@ -411,18 +450,25 @@ void* web_dashboard_thread(void *arg) {
             ".card-title-group{display:flex;align-items:center;gap:10px;}"
             ".card-title-group h3{color:#f8fafc;font-size:1.15rem;font-weight:700;}"
             ".card-badge{font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:6px;letter-spacing:0.5px;background:#24253a;color:#a6adc8;border:1px solid #3b3d54;}"
-            ".input-row input{background:#11111b;border:1px solid #313244;color:#f8fafc;padding:14px 18px;border-radius:10px;width:100%%;font-size:0.95rem;outline:none;transition:all 0.25s ease;}"
-            ".input-row input:focus{border-color:#89b4fa;box-shadow:0 0 0 3px rgba(137,180,250,0.25);background:#131422;}"
+            ".input-wrap{position:relative;display:flex;align-items:center;width:100%%;}"
+            ".input-wrap input{background:#11111b;border:1px solid #313244;color:#f8fafc;padding:14px 44px 14px 18px;border-radius:10px;width:100%%;font-size:0.95rem;outline:none;transition:all 0.25s ease;}"
+            ".input-wrap input:focus{border-color:#89b4fa;box-shadow:0 0 0 3px rgba(137,180,250,0.25);background:#131422;}"
+            ".btn-clear{position:absolute;right:14px;background:none;border:none;color:#6c7086;font-size:1.15rem;cursor:pointer;padding:4px;line-height:1;transition:color 0.15s;}"
+            ".btn-clear:hover{color:#f38ba8;}"
             ".chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}"
             ".chip-label{font-size:0.8rem;color:#a6adc8;margin-right:4px;font-weight:600;}"
             ".chip{background:#24253a;color:#cdd6f4;border:1px solid #3b3d54;padding:6px 13px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.2s ease;}"
             ".chip:hover{background:#35374e;color:#fff;border-color:#89b4fa;transform:translateY(-1px);}"
             ".chip-danger{border-color:rgba(243,139,168,0.4);color:#f38ba8;background:rgba(243,139,168,0.08);}"
             ".chip-danger:hover{background:rgba(243,139,168,0.2);border-color:#f38ba8;}"
+            ".rule-tip{font-size:0.8rem;color:#a6adc8;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:8px;border:1px dashed rgba(255,255,255,0.1);}"
             ".btn-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}"
-            ".btn{display:flex;align-items:center;justify-content:center;gap:7px;height:46px;border:none;border-radius:10px;font-weight:700;font-size:0.9rem;cursor:pointer;color:#11111b;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);}"
+            ".btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:54px;border:none;border-radius:10px;font-weight:700;font-size:0.86rem;cursor:pointer;color:#11111b;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);padding:5px 4px;}"
             ".btn:hover{filter:brightness(1.12);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.3);}"
             ".btn:active{transform:translateY(0);filter:brightness(0.95);}"
+            ".btn-top{display:flex;align-items:center;gap:6px;font-weight:700;}"
+            ".btn-sub{font-size:0.67rem;font-weight:600;opacity:0.82;background:rgba(0,0,0,0.15);padding:1px 6px;border-radius:4px;white-space:nowrap;}"
+            ".btn-sub:hover{opacity:1;background:rgba(0,0,0,0.28);}"
             ".btn-start{background:linear-gradient(135deg,#a6e3a1,#94e2d5);}"
             ".btn-stop{background:linear-gradient(135deg,#f38ba8,#eba0ac);}"
             ".btn-restart{background:linear-gradient(135deg,#f9e2af,#f5c2e7);}"
@@ -447,7 +493,8 @@ void* web_dashboard_thread(void *arg) {
             "@media(max-width:850px){.metrics-grid{grid-template-columns:1fr 1fr;}.btn-grid{grid-template-columns:repeat(3,1fr);}}"
             "</style>"
             "<script>"
-            "function pickService(name){document.getElementById('svc_input').value=name;}"
+            "function pickService(name){var inp=document.getElementById('svc_input');inp.value=name;inp.focus();}"
+            "function handleBtn(action,defaultSvc){var inp=document.getElementById('svc_input');if(!inp.value||!inp.value.trim()){inp.value=defaultSvc;}document.getElementById('action_input').value=action;document.getElementById('svc_form').submit();}"
             "</script>"
             "</head><body><div class='container'>"
             "<header class='header'>"
@@ -470,25 +517,49 @@ void* web_dashboard_thread(void *arg) {
             "<div class='card-title-group'><span>⚡</span><h3>Bảng điều khiển & Chẩn đoán dịch vụ</h3></div>"
             "<span class='card-badge'>Systemd Supervisor</span>"
             "</div>"
-            "<form action='/api/action' method='POST' style='display:flex;flex-direction:column;gap:1rem;'>"
-            "<div class='input-row'>"
-            "<input type='text' id='svc_input' name='service' placeholder='Nhập tên dịch vụ (ví dụ: cron, ssh, getty@tty1, demo-crash)...' required>"
+            "<form id='svc_form' action='/api/action' method='POST' style='display:flex;flex-direction:column;gap:1rem;'>"
+            "<input type='hidden' id='action_input' name='action' value=''>"
+            "<div class='input-wrap'>"
+            "<input type='text' id='svc_input' name='service' value='%s' placeholder='Nhập tên dịch vụ (ví dụ: cron, ssh, getty@tty1, demo-crash)...'>"
+            "<button type='button' class='btn-clear' onclick=\"document.getElementById('svc_input').value='';document.getElementById('svc_input').focus();\" title='Xóa trắng ô nhập'>✕</button>"
             "</div>"
             "<div class='chips'>"
-            "<span class='chip-label'>Chọn nhanh:</span>"
+            "<span class='chip-label'>⚡ Chọn nhanh:</span>"
             "<span class='chip' onclick=\"pickService('cron')\">cron</span>"
             "<span class='chip' onclick=\"pickService('ssh')\">ssh</span>"
             "<span class='chip' onclick=\"pickService('systemd-resolved')\">systemd-resolved</span>"
             "<span class='chip' onclick=\"pickService('getty@tty1')\">getty@tty1</span>"
             "<span class='chip chip-danger' onclick=\"pickService('demo-crash')\">🧪 demo-crash (Test lỗi)</span>"
+            "<span class='chip' onclick=\"pickService('')\" style='background:#1e1e2e;color:#a6adc8;border-color:#313244;'>🗑 Xóa trắng</span>"
+            "</div>"
+            "<div class='rule-tip'>"
+            "<span>💡</span><span><b>Cơ chế thông minh:</b> Để trống ô nhập ➔ nút tự động <b>Fill sẵn</b> mặc định & chạy ngay. Đã có tên ➔ <b>Fill nhanh</b> và thực thi ngay lập tức.</span>"
             "</div>"
             "<div class='btn-grid'>"
-            "<button class='btn btn-start' name='action' value='start'><span>▶</span><span>Start</span></button>"
-            "<button class='btn btn-stop' name='action' value='stop'><span>⏹</span><span>Stop</span></button>"
-            "<button class='btn btn-restart' name='action' value='restart'><span>🔄</span><span>Restart</span></button>"
-            "<button class='btn btn-reload' name='action' value='reload'><span>🔁</span><span>Reload</span></button>"
-            "<button class='btn btn-status' name='action' value='status'><span>ℹ</span><span>Status</span></button>"
-            "<button class='btn btn-diag' name='action' value='diagnose'><span>🔍</span><span>Diagnose</span></button>"
+            "<button type='button' class='btn btn-start' onclick=\"handleBtn('start','cron')\" title='Trống: Chạy cron | Có sẵn: Chạy tên đó'>"
+            "<div class='btn-top'><span>▶</span><span>Start</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('cron');\" title='Chỉ điền cron vào ô'>Mặc định: cron</span>"
+            "</button>"
+            "<button type='button' class='btn btn-stop' onclick=\"handleBtn('stop','demo-crash')\" title='Trống: Dừng demo-crash | Có sẵn: Dừng tên đó'>"
+            "<div class='btn-top'><span>⏹</span><span>Stop</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('demo-crash');\" title='Chỉ điền demo-crash vào ô'>Mặc định: demo-crash</span>"
+            "</button>"
+            "<button type='button' class='btn btn-restart' onclick=\"handleBtn('restart','cron')\" title='Trống: Restart cron | Có sẵn: Restart tên đó'>"
+            "<div class='btn-top'><span>🔄</span><span>Restart</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('cron');\" title='Chỉ điền cron vào ô'>Mặc định: cron</span>"
+            "</button>"
+            "<button type='button' class='btn btn-reload' onclick=\"handleBtn('reload','systemd-resolved')\" title='Trống: Reload systemd-resolved | Có sẵn: Reload tên đó'>"
+            "<div class='btn-top'><span>🔁</span><span>Reload</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('systemd-resolved');\" title='Chỉ điền systemd-resolved vào ô'>Mặc định: systemd-resolved</span>"
+            "</button>"
+            "<button type='button' class='btn btn-status' onclick=\"handleBtn('status','cron')\" title='Trống: Xem status cron | Có sẵn: Xem status tên đó'>"
+            "<div class='btn-top'><span>ℹ</span><span>Status</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('cron');\" title='Chỉ điền cron vào ô'>Mặc định: cron</span>"
+            "</button>"
+            "<button type='button' class='btn btn-diag' onclick=\"handleBtn('diagnose','demo-crash')\" title='Trống: Chẩn đoán demo-crash | Có sẵn: Chẩn đoán tên đó'>"
+            "<div class='btn-top'><span>🔍</span><span>Diagnose</span></div>"
+            "<span class='btn-sub' onclick=\"event.stopPropagation();pickService('demo-crash');\" title='Chỉ điền demo-crash vào ô'>Mặc định: demo-crash</span>"
+            "</button>"
             "</div>"
             "</form>"
             "</section>"
@@ -496,9 +567,12 @@ void* web_dashboard_thread(void *arg) {
             "<section class='card'>"
             "<div class='card-header'>"
             "<div class='card-title-group'><span>🚨</span><h3>Dịch vụ đang lỗi (Failed Units)</h3></div>"
+            "<div style='display:flex;align-items:center;gap:8px;'>"
+            "<button type='button' class='chip chip-danger' style='padding:4px 10px;font-size:0.75rem;' onclick=\"pickService('demo-crash');handleBtn('diagnose','demo-crash');\">🔍 Chẩn đoán ngay</button>"
             "<span class='card-badge' style='%s'>%s</span>"
             "</div>"
-            "<pre class='log-view log-failed'>%s</pre>"
+            "</div>"
+            "<pre class='log-view log-failed' onclick=\"pickService('demo-crash');\" title='Nhấp để chọn demo-crash'>%s</pre>"
             "</section>"
             "<!-- CARD 3: RUNNING UNITS (FULL WIDTH) -->"
             "<section class='card'>"
@@ -526,6 +600,7 @@ void* web_dashboard_thread(void *arg) {
             is_degraded ? "dot-warn" : "dot-ok",
             sys_state,
             uptime_str, load_str, g_web_port, action_feedback,
+            current_service,
             is_degraded ? "color:#f38ba8;border-color:rgba(243,139,168,0.4);" : "color:#a6e3a1;border-color:rgba(166,227,161,0.4);",
             is_degraded ? "Attention Required" : "All Normal",
             strlen(failed_units) > 0 ? failed_units : "✅ Không có service nào bị lỗi. Hệ thống hoạt động hoàn hảo!",
