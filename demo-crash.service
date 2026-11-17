@@ -1,0 +1,11 @@
+[Unit]
+Description=Demo Crash Service for MCP Failure Simulation
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c "echo 'Initializing critical subsystem...'; echo 'FATAL EXCEPTION: OutOfMemory / Segmentation fault simulation' >&2; exit 1"
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

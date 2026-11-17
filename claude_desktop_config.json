@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "linux-service-manager": {
+      "command": "/home/nhan9412/MCP-Sever/mcp-service-manager",
+      "args": ["--mcp-only"]
+    }
+  }
+}

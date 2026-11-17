@@ -1,0 +1,14 @@
+[Unit]
+Description=MCP Linux Service Manager & Web Dashboard Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/mcp-service-manager --web-only --port 8080
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

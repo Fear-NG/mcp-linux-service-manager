@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "linux-service-manager": {
+      "command": "/home/nhan9412/MCP-Sever/mcp-service-manager",
+      "args": ["--mcp-only"],
+      "disabled": false,
+      "autoApprove": [
+        "list_failed_services",
+        "list_running_services",
+        "get_system_metrics",
+        "service_diagnose",
+        "manage_service"
+      ]
+    }
+  }
+}

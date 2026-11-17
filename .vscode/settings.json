@@ -1,0 +1,15 @@
+{
+  "code-runner.executorMap": {
+    "c": "cd $dir && make && ./mcp-service-manager"
+  },
+  "code-runner.runInTerminal": true,
+  "code-runner.saveFileBeforeRun": true,
+  "code-runner.clearPreviousOutput": true,
+  "clangd.path": "clangd",
+  "makefile.configurations": [
+    {
+      "name": "Default",
+      "makeArgs": []
+    }
+  ]
+}

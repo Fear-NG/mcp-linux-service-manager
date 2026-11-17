@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Server (GDB)",
+      "type": "gdb",
+      "request": "launch",
+      "target": "${workspaceFolder}/mcp-service-manager",
+      "cwd": "${workspaceFolder}",
+      "valuesFormatting": "parseText",
+      "preLaunchTask": "Build (make)"
+    }
+  ]
+}
