@@ -59,7 +59,8 @@ int is_allowed_action(const char *action) {
             strcmp(action, "status") == 0 ||
             strcmp(action, "reload") == 0 ||
             strcmp(action, "enable") == 0 ||
-            strcmp(action, "disable") == 0);
+            strcmp(action, "disable") == 0 ||
+            strcmp(action, "reset-failed") == 0);
 }
 
 char* run_cmd_safe(char *const argv[]) {
@@ -319,11 +320,16 @@ void* web_dashboard_thread(void *arg) {
                     parse_post_param(body, "action", action, sizeof(action));
                 }
 
+                // Nếu action để trống (ví dụ nhấn Enter), mặc định là status
+                if (strlen(action) == 0) {
+                    snprintf(action, sizeof(action), "status");
+                }
+
                 // Tự động điền dịch vụ mặc định theo nút nếu ô nhập để trống
                 int auto_filled = 0;
                 if (strlen(service) == 0) {
                     auto_filled = 1;
-                    if (strcmp(action, "diagnose") == 0 || strcmp(action, "stop") == 0) {
+                    if (strcmp(action, "diagnose") == 0 || strcmp(action, "stop") == 0 || strcmp(action, "reset-failed") == 0) {
                         snprintf(service, sizeof(service), "demo-crash");
                     } else if (strcmp(action, "reload") == 0) {
                         snprintf(service, sizeof(service), "systemd-resolved");
@@ -358,6 +364,14 @@ void* web_dashboard_thread(void *arg) {
                 } else if (is_allowed_action(action)) {
                     char *argv[] = {"/usr/bin/sudo", "/bin/systemctl", action, service, NULL};
                     char *cmd_res = run_cmd_safe(argv);
+
+                    // Khi stop hoặc reset-failed trên service, đảm bảo reset-failed được kích hoạt để khôi phục OS
+                    if (strcmp(action, "stop") == 0) {
+                        char *rf_argv[] = {"/usr/bin/sudo", "/bin/systemctl", "reset-failed", service, NULL};
+                        char *rf_res = run_cmd_safe(rf_argv);
+                        free(rf_res);
+                    }
+
                     snprintf(action_feedback, 16384,
                              "<div class='alert ok'>%s✅ <b>Kết quả thực thi lệnh <code>systemctl %s %s</code>:</b>"
                              "<pre>%s</pre></div>",
@@ -517,7 +531,7 @@ void* web_dashboard_thread(void *arg) {
             "<div class='card-title-group'><span>⚡</span><h3>Bảng điều khiển & Chẩn đoán dịch vụ</h3></div>"
             "<span class='card-badge'>Systemd Supervisor</span>"
             "</div>"
-            "<form id='svc_form' action='/api/action' method='POST' style='display:flex;flex-direction:column;gap:1rem;'>"
+            "<form id='svc_form' action='/api/action' method='POST' onsubmit=\"if(!document.getElementById('action_input').value)document.getElementById('action_input').value='status';\" style='display:flex;flex-direction:column;gap:1rem;'>"
             "<input type='hidden' id='action_input' name='action' value=''>"
             "<div class='input-wrap'>"
             "<input type='text' id='svc_input' name='service' value='%s' placeholder='Nhập tên dịch vụ (ví dụ: cron, ssh, getty@tty1, demo-crash)...'>"
@@ -569,6 +583,7 @@ void* web_dashboard_thread(void *arg) {
             "<div class='card-title-group'><span>🚨</span><h3>Dịch vụ đang lỗi (Failed Units)</h3></div>"
             "<div style='display:flex;align-items:center;gap:8px;'>"
             "<button type='button' class='chip chip-danger' style='padding:4px 10px;font-size:0.75rem;' onclick=\"pickService('demo-crash');handleBtn('diagnose','demo-crash');\">🔍 Chẩn đoán ngay</button>"
+            "<button type='button' class='chip' style='padding:4px 10px;font-size:0.75rem;background:#a6e3a1;color:#11111b;font-weight:700;' onclick=\"pickService('demo-crash');handleBtn('reset-failed','demo-crash');\">🧹 Khôi phục OS</button>"
             "<span class='card-badge' style='%s'>%s</span>"
             "</div>"
             "</div>"
@@ -839,7 +854,7 @@ int main(int argc, char *argv[]) {
                 // Tool 5: manage_service
                 cJSON *t3 = cJSON_CreateObject();
                 cJSON_AddStringToObject(t3, "name", "manage_service");
-                cJSON_AddStringToObject(t3, "description", "Điều khiển service: start, stop, restart, reload, status, enable, disable");
+                cJSON_AddStringToObject(t3, "description", "Điều khiển service: start, stop, restart, reload, status, enable, disable, reset-failed");
                 cJSON *s3 = cJSON_CreateObject(); cJSON_AddStringToObject(s3, "type", "object");
                 cJSON *props = cJSON_CreateObject();
                 cJSON *p1 = cJSON_CreateObject(); cJSON_AddStringToObject(p1, "type", "string");
